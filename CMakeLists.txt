@@ -10,6 +10,7 @@ project(
   Test
   LANGUAGES CXX)
 
+set(CMAKE_CUDA_ARCHITECTURES "80;90")
 enable_language(CUDA)
 enable_language(C)
 find_package(CUDAToolkit REQUIRED)
@@ -20,7 +21,6 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_BUILD_TYPE DEBUG)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_CUDA_ARCHITECTURES "80;90")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(GUSTANN_USE_BAM "Enable BaM support" OFF)
