@@ -61,7 +61,7 @@ cmake .. # Use flags here for specific backends (see below)
 make -j
 cd ..
 ```
-*Note: To build with a specific storage backend, append the switch to the CMake command: `-DCMAKE_USE_{SPDK,URING,AIO}=ON`.*
+*Note: To build with a specific storage backend, append the switch to the CMake command: `-DGUSTANN_USE_{SPDK,URING,AIO}=ON`.*
 
 ---
 
@@ -135,7 +135,7 @@ You can run GustANN using SPDK (fastest), liburing, or libaio.
     cd ../..
     
     # Remember to rebuild GustANN with SPDK enabled: 
-    # cd build && cmake .. -DCMAKE_USE_SPDK=ON && make -j && cd ..
+    # cd build && cmake .. -DGUSTANN_USE_SPDK=ON && make -j && cd ..
     ```
 2.  **Setup SPDK:**
     ```bash
@@ -158,9 +158,9 @@ You can run GustANN using SPDK (fastest), liburing, or libaio.
     cd ../..
     
     # Remember to rebuild GustANN with: 
-    # cd build && cmake .. -DCMAKE_USE_URING=ON && make -j && cd ..
+    # cd build && cmake .. -DGUSTANN_USE_URING=ON && make -j && cd ..
     ```
-*   **libaio:** Ensure your Linux kernel supports libaio. Rebuild GustANN with `-DCMAKE_USE_AIO=ON`.
+*   **libaio:** Ensure your Linux kernel supports libaio. Rebuild GustANN with `-DGUSTANN_USE_AIO=ON`.
 
 #### ▶️ Execute On-SSD Search
 Update `scripts/setup.sh`, then run the appropriate script for your backend:
