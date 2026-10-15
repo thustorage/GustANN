@@ -47,6 +47,11 @@ add_library(spdk_io spdk_io.cpp)
 target_link_libraries(spdk_io PUBLIC spdk_wrapper)
 target_compile_options(spdk_io PUBLIC "-O2")
 
+add_library(spdk_io_probe spdk_io.cpp)
+target_link_libraries(spdk_io_probe PUBLIC spdk_wrapper)
+target_compile_options(spdk_io_probe PUBLIC "-O2")
+target_compile_definitions(spdk_io_probe PUBLIC DATA_PROBE)
+
 add_executable(test_spdk test_spdk.cpp)
 target_link_libraries(test_spdk spdk_wrapper)
 target_compile_options(test_spdk PUBLIC "-O2")

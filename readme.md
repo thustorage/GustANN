@@ -2,108 +2,259 @@
 
 Welcome to the artifact repository of SIGMOD'26 paper: *High-Throughput, Cost-Effective Billion-Scale Vector Search with a Single GPU.*
 
-## Build GustANN
+This branch contains the scripts to reproduce the primary results described in the paper.
 
-### Basic Configurations
+## Quick Start (for AE reviewers)
 
-+ CPU: X86 CPU supporting huge page (You may verify this through `grep pdpe1gb /proc/cpuinfo`), 
+We have prepared the experiment environment for the AE reviewer. To access the environment, please follow the instructions on the HotCRP website or contact the authors directly.
+
+To run the experiment, simply:
+
+```bash
+cd GustANN/scripts/ae
+./run_all.sh # Run all experiments
+python3 -m notebook --no-browser --ip=0.0.0.0 --port=8888 plot_results.ipynb # Or use the VS Code Jupyter extension
+```
+
+Open the URL printed in the terminal in your browser. Use the server's address or SSH port forwarding to access the notebook.
+
+Set `LOG_PREFIX` on the first line of the notebook to your log directory name, such as `test-20261014-180519`, rather than its full path. The notebook exports PDF figures to `figures/<LOG_PREFIX>/` in the repository root.
+
+Experiment logs are stored in `log/<prefix>-<timestamp>/` in the repository root.
+
+If you face any problems, or the scripts fail during the process, please contact the authors.
+
+## Setup Guide
+
+Here we show how to set up the artifact environment (including both GustANN and the compared baselines) from scratch.
+
+### Hardware Configurations
+
++ CPU: x86 CPU supporting huge pages (You may verify this through `grep pdpe1gb /proc/cpuinfo`).
++ OS: We have tested the scripts on Linux 5.15.0-177-generic, Ubuntu 24.04. Root privilege is needed.
 + DRAM: ~40GB for vector search. Additional memory space is needed for building the index.
-+ SSD: ~700GB for SIFT and ~1TB for DEEP (both containing 1B vectors). Multiple SSDs are supported. 
-  - Note that we use SPDK to manage the SSDs, so there should be no partitions or filesystems on SSDs 
-  - You may use `nvme format` to format the disk. **This will erase all data on the disk. Do this at your own risk!**
++ SSD: Empty SSDs for running the experiment
+  - To reproduce the results, we recommend to use at least 4 PM1743 or equivalent SSDs.
+  - To store all datasets and indices, an additional ~4 TB of space (on the filesystem) is needed.
 + GPU: ~40GB GPU memory for billion-scale vector search (e.g., NVIDIA A100)
-+ Root privillege for SPDK library.
-+ Vector dataset: less than 2B vectors to avoid integer overflow, each record size (`vector_size + 4 + 4 * num_neighbors`) is less than 4KB. 
+  - We tested the scripts on CUDA 12.8, NVIDIA driver 590.44.01.
+  - Note that to run the [BaM](https://github.com/ZaidQureshi/bam) baseline (Figure 11), you need to install an open-source version of the NVIDIA driver.
++ gcc/g++: Version 12 (Some baselines cannot be compiled, or need additional adjustments on GCC 13).
 
 ### Software Dependencies
 
-We use [DiskANN](https://github.com/microsoft/DiskANN) to build the vector index. 
-To build DiskANN, install the following dependencies (for Ubuntu 22.04):
+You need to install the following packages:
 
-``` shell-session
-# apt install make cmake g++ libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev libmkl-full-dev libjemalloc-dev
+``` bash
+apt install make cmake g++ libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev libmkl-full-dev libjemalloc-dev
 ```
 
-Other dependencies of GustANN is listed in `deps/` directory.
-
-### Build the Repository
+### Build GustANN
 
 First, clone the repository:
 
-``` shell-session
-$ git clone https://github.com/thustorage/GustANN.git --recursive
-$ cd GustANN
+``` bash
+git clone --branch ae --recursive https://github.com/thustorage/GustANN.git
+cd GustANN
 ```
 
 Then, build the SPDK dependency:
 
-``` shell-session
-$ cd deps/spdk
-$ sudo scripts/pkgdep.sh # Install the dependency of SPDK
-$ ./configure
-$ make -j
-$ cd ../..
-```
-
-Then, build DiskANN:
-
-``` shell-session
-$ cd deps/DiskANN
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make -j
-$ cd ../../..
+``` bash
+cd deps/spdk
+sudo scripts/pkgdep.sh # Install the dependency of SPDK
+./configure
+make -j
+cd ../..
 ```
 
 Finally, build GustANN:
 
-``` shell-session
-$ mkdir -p build
-$ cd build
-$ cmake ..
-$ make -j
-$ cd ..
+``` bash
+mkdir -p build
+cd build
+cmake .. -DGUSTANN_USE_BAM=OFF
+make -j
+cd ..
 ```
 
+
+
+### Build other baselines
+
+We include a patch file in `scripts/ae/patch` for each baseline, containing bug fixes and additional logging for the log parser.
+
+If a baseline's CMake configuration cannot detect the GPU architecture and supports `CMAKE_CUDA_ARCHITECTURES`, specify it explicitly, for example `cmake -DCMAKE_CUDA_ARCHITECTURES="80;90" ..`. Keep the quotes so the shell does not interpret the semicolon as a command separator. GustANN currently sets its architectures directly in the root `CMakeLists.txt`; change that setting there if needed.
+
+#### DiskANN (core dependency)
+
+DiskANN is the main baseline compared to GustANN. DiskANN is also used to build the graph index. Therefore, it is highly recommended to be prepared.
+
+```bash
+cd deps/DiskANN
+mkdir build && cd build
+cmake .. && make -j
+cd ../../..
+```
+
+#### Starling
+
+We assume the baseline is placed in `baselines/`.
+
+```bash
+# Clone the repo
+mkdir -p baselines
+cd baselines
+git clone https://github.com/zilliztech/starling.git
+cd starling
+git checkout 17dc3e8a011533a62374445f53963e951b72883a # The commit we tested
+git submodule update --init --recursive --depth 1
+git apply ../../scripts/ae/patch/starling.patch
+
+# Build
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make
+cd ../../..
+```
+
+#### SPANN
+
+We assume the baseline is placed in `baselines/`.
+
+```bash
+# Clone the repo
+mkdir -p baselines
+cd baselines
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/microsoft/SPTAG
+cd SPTAG
+git checkout 4ecf2495eb6187b555c0a6ee7d3b5394d5362183 # The commit we tested
+git submodule update --init --recursive --depth 1
+git apply ../../scripts/ae/patch/spann.patch
+
+# Build
+mkdir build
+cd build
+cmake ..
+make
+cd ../../..
+```
+
+#### BANG
+
+```bash
+# Clone the repo
+mkdir -p baselines
+cd baselines
+git clone https://github.com/karthik86248/BANG-Billion-Scale-ANN.git
+cd BANG-Billion-Scale-ANN
+git checkout aceab75d7ae9975e22c08f214fa8a2e6eb779258
+git apply ../../scripts/ae/patch/bang.patch
+
+# Build
+cd BANG_Base
+mkdir build
+cd build
+cmake ..
+make
+cd ../../../..
+```
+
+#### Rummy
+
+``` bash
+# Clone the repo
+mkdir -p baselines
+cd baselines
+git clone https://github.com/pkusys/Rummy.git
+cd Rummy
+git checkout accf7f81996d67460654a7493183af952dc3ff28
+git submodule update --init --recursive --depth 1
+git apply ../../scripts/ae/patch/rummy.patch
+
+# Build
+mkdir build
+cd build
+cmake -DFAISS_ENABLE_GPU=YES -DFAISS_ENABLE_PYTHON=NO ..
+make
+make overall_billion
+cd ../../..
+```
+#### BaM
+
+``` bash
+# Clone the repo
+cd deps/
+git clone https://github.com/ZaidQureshi/bam.git
+cd bam
+git checkout 2edd33c
+git submodule update --init --recursive --depth 1
+git apply ../../scripts/ae/patch/bam.patch
+
+# Build
+mkdir build
+cd build
+cmake ..
+make
+cd module
+make
+# To check whether the kernel module of BaM works.
+sudo make load
+sudo make unload
+cd ../../../..
+
+# Recompile GustANN
+cd build
+cmake .. -DGUSTANN_USE_BAM=ON
+make -j
+cd ..
+```
 
 ## Dataset and Index Preparation
 
-For complete dataset preparation instructions, you may refer to [PipeANN's repository](https://github.com/thustorage/PipeANN?tab=readme-ov-file#for-others-starting-from-scratch). 
-Note that PipeANN uses a different argument format to DiskANN.
+### Dataset Download & Conversion
 
-### Build DiskANN Index
+You can download the datasets from the following links: [SIFT1B](http://corpus-texmex.irisa.fr/) and [DEEP1B](http://corpus-texmex.irisa.fr/). At a minimum, download the following files: base set (the vectors in the vector database), query set (the query vectors), and the ground truth (the real top-$k$ nearest neighbors). You can use `./deps/DiskANN/build/apps/utils/compute_groundtruth` to generate the ground truth if needed. Convert its output to `.ivecs` using `scripts/io_utils.py`: read the ID matrix with `ibin_read()` and write it with `ivecs_write()`.
 
-If you have built the index, please skip this step.
-
-To build a DiskANN index, you need to prepare a dataset in `bin` format.
-To convert the dataset, DiskANN provides some utilities to convert from `bvec/fvec`(format that SIFT dataset uses):
-
-``` shell-session
-$ ./deps/DiskANN/build/apps/utils/fvecs_to_bin <float/uint8> input_vecs output_bin
-```
-
-Then, you can build the index using the following command:
+Please note that there are two main types of data format in ANNS: bin format (`.fbin` for `float` data and `.bbin` for `uint8` data) and vecs format (`fvecs/ivecs/bvecs` for `float/int32/uint8` respectively).
+Different baselines use different data formats.
+DiskANN provides tools to convert from vecs format to bin format.
 
 ``` bash
-$ ./deps/DiskANN/build/apps/build_disk_index --data_type uint8/float --dist_fn l2 --index_path_prefix <index_prefix> --data_path <dataset_file> -B <pq_size> -M <memory> -R 128 -L 200 
+./deps/DiskANN/build/apps/utils/fvecs_to_bin <float/uint8> input_vecs output_bin
+```
+
+We provide a Python helper `scripts/io_utils.py`, which supports I/O and conversion for these formats, although converting large datasets may exceed the available DRAM.
+
+To generate SIFT100M/DEEP100M, you only need to extract the first 100M vectors from the base set (Recomputation of groundtruth may be needed).
+
+Rummy also requires a DEEP training subset in `.fvecs` format, configured as `data/deep/1M.fvecs`, which can be prepared from the first 1M DEEP vectors.
+
+### Build DiskANN/GustANN Index
+
+DiskANN and GustANN indices can be constructed with the following commands:
+
+``` bash
+# SIFT1B
+./deps/DiskANN/build/apps/build_disk_index --data_type uint8 --dist_fn l2 --index_path_prefix <index_prefix> --data_path <dataset_file> -B 30.5 -M <memory> -R 128 -L 200
+
+# DEEP1B
+./deps/DiskANN/build/apps/build_disk_index --data_type float --dist_fn l2 --index_path_prefix <index_prefix> --data_path <dataset_file> -B 30.5 -M <memory> -R 128 -L 200
+
+# SIFT100M
+./deps/DiskANN/build/apps/build_disk_index --data_type uint8 --dist_fn l2 --index_path_prefix <index_prefix> --data_path <dataset_file> -B 3.3 -M <memory> -R 128 -L 200
+
+# DEEP100M
+./deps/DiskANN/build/apps/build_disk_index --data_type float --dist_fn l2 --index_path_prefix <index_prefix> --data_path <dataset_file> -B 3.3 -M <memory> -R 128 -L 200
 ```
 
 The key parameters are specified like this:
 + `index_prefix`: the directory and the name of the index. For example, if you use `/data/index`, then DiskANN will create index files with this prefix (e.g., `/data/index_disk.index`).
 + `dataset_file`: the dataset in `bin` format
-+ `pq_size`: Size of the compressed product quantilization (PQ) vectors. Type 3.3 for 100M-scale datasets, 33 for 1B-scale datasets. This setting will generate 32-bit PQ vectors.
-+ `memory`: The maximum memory available for building the index. 
++ `memory`: The maximum memory available for building the index (recommended > 200GB).
 
-Alternatively, after modifying the `scripts/setup.sh`, you can also execute the script:
-
-``` shell-session
-$ ./scripts/build_disann_index.sh <pq_size> <memory>
-```
-
-### Prepare GustANN Index
-
-In addition to the original DiskANN index, GustANN needs the build a pivot graph.
+Then GustANN needs to build a pivot graph.
 
 We have provided scripts to build the pivot graph easily.
 Please modify the `scripts/setup.sh` according to the instruction in it, and run:
@@ -112,115 +263,53 @@ Please modify the `scripts/setup.sh` according to the instruction in it, and run
 $ ./scripts/gen_pivot_graph.sh
 ```
 
+### Build Starling Index
 
-## Run GustANN
+Starling needs to convert the DiskANN into its own format.
+We use SIFT100M as an example. For DEEP100M, replace `uint8` with `float`.
 
-Note that you need to root privilege to execute GustANN (required by SPDK).
-
-### Setup SPDK
-
-``` shell-session
-# ./deps/spdk/scripts/setup.sh # Setup SPDK Environment
-# ./deps/spdk/build/examples/hello_world # To check whether SPDK works fine
+``` bash
+cd baselines/starling/build
+./graph_partition/partitioner --index_file <index_prefix>_disk.index --data_type uint8 --gp_file <gp_part.bin> -T 16 --ldg_times 16
+./tests/utils/index_relayout <index_prefix>_disk.index <gp_part.bin>
+ln -s <gp_part.bin> <index_prefix>_partition.bin
+cd ../../..
 ```
 
-Ideally, you will see outputs similar to this:
+The `<gp_part.bin>` is the Starling Index. It also generates additional intermediate files for the search.
 
-``` plain
-Attaching to 0000:8b:00.0
-Attaching to 0000:8d:00.0
-Attaching to 0000:8e:00.0
-Attached to 0000:8d:00.0
-  Namespace ID: 1 size: 3840GB
-Attached to 0000:8e:00.0
-  Namespace ID: 1 size: 3840GB
-Attached to 0000:8b:00.0
-  Namespace ID: 1 size: 3840GB
-Initialization complete.
-INFO: using host memory buffer for IO
-Hello world!
-INFO: using host memory buffer for IO
-Hello world!
-INFO: using host memory buffer for IO
-Hello world!
+### Build BANG Index
+
+We use SIFT100M as an example. For DEEP100M, replace `uint8` with `float` in the index-building command. In the preprocessing command, change the dimension from `128` to `96` and the data type code from `1` (uint8) to `2` (float).
+
+```bash
+deps/DiskANN/build/apps/build_disk_index --data_type uint8 --dist_fn l2 --index_path_prefix <bang_index_prefix> --data_path <dataset_file> -B 6.3 -M <memory> -R 64 -L 100
+python3 baselines/BANG-Billion-Scale-ANN/BANG_Base/bang_preprocess.py <bang_index_prefix>_disk.index <bang_index_prefix>_disk.bin 128 1 64
 ```
 
-Collect all PCIe addresses for the SSDs you want you use in the format of XXXX:XX:XX.X, and write them into a file (`ssd_list.txt` for instance):
+### Build SPANN Index
 
-```plain
-0000:8b:00.0
-0000:8d:00.0
-0000:8e:00.0
+First, modify the data path in the `scripts/ae/{sift,deep}100m_build.ini`, then run
+
+```bash
+ulimit -s unlimited # To avoid stack overflow
+./baselines/SPTAG/Release/ssdserving scripts/ae/sift100m_build.ini # OR deep100m_build.ini
 ```
 
-### Write Index to SSD
 
-Then, write the index contents into the SSD using the following utility:
+## Prepare experiment
 
-``` shell-session
-# ./build/spdk/spdk_write <index_file> <ssd_list>
+Before executing the all-in-one scripts above, modify the following files to match your index paths:
++ `scripts/ae/ae-setup.sh`
++ `scripts/ae/run_{sift,deep}100m_starling.sh`: Make sure that `DISK_FILE` variable is valid
++ `baselines/Rummy/eval/overall_billion.cu`: Update the paths on lines 232-235 to match your dataset locations. After that, rebuild Rummy.
++ `ssd_list.txt`: list the PCIe addresses of your **EMPTY SSDs** in the `XXXX:XX:XX.X` format, one per line. You can find them with the `lspci` command. **The data on the SSDs will be erased once the experiments start, so be careful with this step!**
+
+One experiment (Figure 16) uses 1M synthetic SIFT queries generated by combining 8-dimensional segments from the original queries. Update `ifile` and `ofile` in `scripts/ae/data_argument.py` to the paths of the original queries and `bigann_query_arg.bvecs`, then run the generator and convert its output to bin format:
+
+```bash
+python3 scripts/ae/data_argument.py
+./deps/DiskANN/build/apps/utils/fvecs_to_bin uint8 /path/to/bigann_query_arg.bvecs /path/to/bigann_query_arg.bbin
 ```
 
-The `index_file` is the DiskANN index file (`<prefix>_disk.index`), `ssd_list` is the SSD list collected in the previous step.
-
-Alternatively, after modifying the `scripts/setup.sh`, you can also execute the script:
-
-``` shell-session
-# ./scripts/write_spdk.sh
-```
-
-### Execute GustANN
-
-For SIFT dataset (`uint8` datatype), run:
-
-``` shell-session
-# ./build/bin/search_disk_hybrid --query <query_file> --index <index_file> --ground_truth <ground_truth> --pq_data <pq_file> --nav_graph <nav_graph> --topk <topk> --ef_serach <L> -B <B> -T <T> -C <C> -R <R> --ssd_list_file <ssd_list>
-```
-
-For DEEP dataset (`float` datatype), use `search_disk_hybrid_float` executable instead.
-Other data types are not supported currently.
-
-The meaning of each parameter is shown as follows:
-
-+ `query_file`: The query vectors (in `bvecs`/`fvecs` format)
-+ `index_file`: The DiskANN index
-+ `ground_truth`: The ground truth (in `ivecs` format)
-+ `pq_file`: The product quantilization (PQ) of all vectors (only need to type `<prefix>_pq`)
-+ `nav_graph`: The additional GustANN index (the `nav/` directory)
-+ `topk`: How many top-k vectors are searched
-+ `L`: How many vectors are stored during the search (The higher, the more accurate)
-+ `B`: The minibatch size (1120 in the evaluation)
-+ `T`: How many worker threads (2 in the evaluation)
-+ `C`: How many minibatches for each thread (20 in the evaluation)
-+ `R`: Repeat the query `R` times. Set it to greater than 1 for a more accurate throughput benchmark, if the query set is small.
-+ `ssd_list`: The SSD list file.
-
-After the search finishes, the runtime, total SSD I/Os, and the recall will be printed on the stdout.
-
-Alternatively, after modifying the `scripts/setup.sh`, you can also execute the script:
-
-``` shell-session
-# ./scripts/run.sh --topk <topk> --ef_serach <L> -B <B> -T <T> -C <C> -R <R>
-```
-
-## Paper
-
-If you find GustANN useful, please cite our paper:
-
-``` bibtex
-@inproceedings{sigmod26gustann,
-author = {Haodi Jiang and Hao Guo and Minhui Xie and Jiwu Shu and Youyou Lu},
-title = {{High-Throughput, Cost-Effective Billion-Scale Vector Search with a Single GPU}},
-year = {2026},
-publisher = {Association for Computing Machinery},
-booktitle = {Proceedings of the 2026 International Conference on Management of Data},
-address = {Bengaluru, India},
-series = {SIGMOD '26}
-}
-```
-
-## Acknowledgement
-
-Some GPU kernel implementations are from [CuHNSW](https://github.com/js1010/cuhnsw). We really appreciate it.
-
-
+Set `QUERY_FILE_MOCK` and `QUERY_BIN_FILE_MOCK` in `scripts/ae/ae-setup.sh` to these two files.

@@ -1,0 +1,12 @@
+diff --git a/include/ann_exception.h b/include/ann_exception.h
+index 6b81373c..83edbf8f 100644
+--- a/include/ann_exception.h
++++ b/include/ann_exception.h
+@@ -5,6 +5,7 @@
+ #include <string>
+ #include <stdexcept>
+ #include <system_error>
++#include <cstdint>
+ #include "windows_customizations.h"
+ 
+ #ifndef _WINDOWS

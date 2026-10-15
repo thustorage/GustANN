@@ -39,7 +39,8 @@ struct Queue {
 };
 
 template <class T> struct SPSCQueue {
-  std::atomic<int> head, tail;
+  alignas(64) std::atomic<int> head;
+  alignas(64) std::atomic<int> tail;
   int cap;
   T* data;
   SPSCQueue(int cap): head(0), tail(0), cap(cap) {
@@ -116,6 +117,11 @@ static void bind_core(int core_num) {
 
 
 
+// Keep counters for different contexts and SSDs on separate cache lines.
+struct alignas(64) AlignedCounter {
+  std::atomic<int> value{0};
+};
+
 class SpdkIOImpl: public SpdkIO {
 public:
   void push_queue(const std::vector<std::pair<int, void *>> & req, int tid, int cid) override {
@@ -124,10 +130,10 @@ public:
       int off = blk / num_ssd;
       submit_queue[ssd]->push(Req(cid, off, dst), tid);
     }
-    ready[cid].fetch_add(req.size());
+    ready[cid].value.fetch_add(req.size());
   }
   bool check_ready(int cid) override {
-    return ready[cid].load() == 0;
+    return ready[cid].value.load() == 0;
   }
 
   void init(const std::vector<std::string>& ssds,
@@ -136,8 +142,7 @@ public:
             int ctx_cnt) override {
     spdk = spdk_wrapper::SpdkWrapper::create(32);
     spdk->Init(ssds);
-    ready = (std::atomic<int>*) new int[ctx_cnt];
-    memset((int*)ready, 0, sizeof(int) * ctx_cnt);
+    ready = new AlignedCounter[ctx_cnt];
     num_ssd = ssds.size();
     for (int i = 0; i < num_ssd; i++) {
       submit_queue.push_back(new MPSCQueue<Req>(queue_cap, thread_cnt));
@@ -235,7 +240,7 @@ private:
   int num_ssd;
   std::unique_ptr<spdk_wrapper::SpdkWrapper> spdk;
   std::vector<MPSCQueue<Req>*> submit_queue;
-  std::atomic<int>* ready;
+  AlignedCounter* ready;
   std::vector<std::thread> worker;
 
   std::vector<std::vector<std::pair<double, int>>> latency;
@@ -259,8 +264,8 @@ private:
 #endif
 
     
-    //printf("Ready !!! %d %d\n", cur->tid, cur->ctx->ready[cur->tid].load());
-    if (cur->ctx->ready[cur->cid].fetch_sub(1) == 1) cur->ctx->fail[cur->ns_id]++;
+    //printf("Ready !!! %d %d\n", cur->tid, cur->ctx->ready[cur->tid].value.load());
+    if (cur->ctx->ready[cur->cid].value.fetch_sub(1) == 1) cur->ctx->fail[cur->ns_id]++;
     if (cur->ctx->find_ready(cur->ns_id, cur->cid, cur->r, cur->buffer)) {
       submit(cur);
     } else {
@@ -305,11 +310,10 @@ private:
 
 
   
-  std::atomic<int>* read_cnt;
+  AlignedCounter* read_cnt;
   std::atomic<int> finished;
   void worker_thread() {
-    read_cnt = (std::atomic<int>*)new int [num_ssd];
-    for (int i = 0; i < num_ssd; i++) read_cnt[i] = 0;
+    read_cnt = new AlignedCounter[num_ssd];
     idle_cnt = 0;
     
     finished = false;
@@ -328,7 +332,7 @@ private:
         std::chrono::duration<double> elapsed = end - start;
         std::vector<long> rds;
         for (int i = 0; i < num_ssd; i++) {
-          long cur = read_cnt[i];
+          long cur = read_cnt[i].value.load();
           long r = cur - last[i];
           last[i] = cur;
           rds.push_back(r);
@@ -383,7 +387,7 @@ private:
         ctxs[i].qp_id = 0;
         ctxs[i].wait_queue = &wait_queue;
         ctxs[i].idle_queue = &idle_queue;
-        ctxs[i].read_cnt = &read_cnt[nid];
+        ctxs[i].read_cnt = &read_cnt[nid].value;
         ctxs[i].ctx = this;
         ctxs[i].buffer = buff + i * PG_SIZE;
         ctxs[i].cid = 0;

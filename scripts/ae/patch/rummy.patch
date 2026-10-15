@@ -1,0 +1,156 @@
+diff --git a/eval/overall_billion.cu b/eval/overall_billion.cu
+index 95e03a1..0132b82 100644
+--- a/eval/overall_billion.cu
++++ b/eval/overall_billion.cu
+@@ -208,23 +208,36 @@ int main(int argc,char **argv){
+         return 0;
+     }
+     if (p1 == "sift"){
+-        db = "/billion-data/data2/sift1B.fbin";
+-        train_db = "/billion-data/data4/sift/sift10M/sift10M.fvecs";
+-        query = "/billion-data/data4/sift/sift10M/query.fvecs";
+-        gtI = "/billion-data/data2/sift1Bgti.ivecs";
++        //db = "/billion-data/data2/sift1B.fbin";
++        // train_db = "/billion-data/data4/sift/sift10M/sift10M.fvecs";
++        //query = "/billion-data/data4/sift/sift10M/query.fvecs";
++        //gtI = "/billion-data/data2/sift1Bgti.ivecs";
++        //gtD = "/billion-data/data2/sift1Bgtd.fvecs";
++        
++        db = "/mnt/data/data/bigann/bigann_100M.fbin";
++        train_db = "/mnt/data/data/bigann/bigann_10M.fvecs";
++        query = "/mnt/data/data/bigann/bigann_query.fvecs";
++        gtI = "/mnt/data/data/bigann/gnd/idx_100M.ivecs";
+         gtD = "/billion-data/data2/sift1Bgtd.fvecs";
+         dim = 128;
+-        ncentroids = 256;
++        ncentroids = 1024; // original: 256
+     }
+     else if (p1 == "deep"){
+-        db = "/billion-data/data1/deep1B.fbin";
+-        train_db = "/billion-data/data4/deep/deep10M.fvecs";
+-        query = "/billion-data/data4/deep/query.fvecs";
+-        gtI = "/billion-data/data1/deep1Bgti.ivecs";
++        //db = "/mnt";
++        //train_db = "/billion-data/data4/deep/deep10M.fvecs";
++        //query = "/billion-data/data4/deep/query.fvecs";
++        //gtI = "/billion-data/data1/deep1Bgti.ivecs";
++        //gtD = "/billion-data/data1/deep1Bgtd.fvecs";
++        //db = "/mnt/data/jhd/data/deep/100M.fbin";
++        db = "/mnt/data/jhd/data/deep/100M.fbin";
++        train_db = "/mnt/data/jhd/data/deep/1M.fvecs";
++        query = "/mnt/data/jhd/data/deep/deep1B_queries.fvecs";
++        gtI = "/mnt/data/jhd/data/deep/deep100M_groundtruth.ivecs";
+         gtD = "/billion-data/data1/deep1Bgtd.fvecs";
+         dim = 96;
+-        ncentroids = 384;
++        ncentroids = 1024; // original: 384
+     }
++    /*
+     else if (p1 == "text"){
+         db = "/billion-data/data3/text1B.fbin";
+         train_db = "/billion-data/data4/text/text10M.fvecs";
+@@ -234,6 +247,7 @@ int main(int argc,char **argv){
+         dim = 200;
+         ncentroids = 192;
+     }
++    */
+     else{
+         printf("Your input dataset is not included yet! \n");
+         return 0;
+@@ -328,7 +342,7 @@ int main(int argc,char **argv){
+     }
+ 
+     float *gtd;
+-    {
++    if (false) {
+         printf("[%.3f s] Loading ground truth for %ld queries\n",
+                elapsed() - t0,
+                nq);
+@@ -382,41 +396,52 @@ int main(int argc,char **argv){
+     index->set_nprobe(in_probe);
+     double tt0, tt1, total = 0., opt = 0., group_time = 0., reorder_time = 0., nogroup = 0.;
+ 
+-    int i;
+-    for (i = 0; i < nq / bs; i++){
+-        tt0 = elapsed();
+-        auto sche = new faiss::gpu::PipeScheduler(index, 
+-            pc, pipe_res, bs, xq + d * (bs * i), input_k, dis.data() + input_k * (bs * i), idx.data() + input_k * (bs * i));
+-        tt1 = elapsed();
+-        printf("Computation Time: %.3f s, Transmission Time: %.3f s\n", 
+-            sche->com_time, sche->com_transmission);
+-        // warm up
+-        if (i > 0){
+-            total += (tt1 - tt0) * 1000;
+-            group_time += sche->group_time;
+-            reorder_time += sche->reorder_time;
+-            opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
+-            nogroup += sche->com_time*1000 + sche->com_transmission*1000;
++
++    const int T = 10;
++    for (int round = 0; round < T + 1; round ++) {
++        for (int i = 0; i < nq; i += bs){
++            int end = i + bs < nq ? i + bs : nq;
++            int cnt = end - i;
++            tt0 = elapsed();
++            auto sche = new faiss::gpu::PipeScheduler(
++              index, pc, pipe_res, cnt, xq + d * i, input_k, dis.data() + input_k * i, idx.data() + input_k * i);
++            tt1 = elapsed();
++            printf("Computation Time: %.3f s, Transmission Time: %.3f s\n", 
++                   sche->com_time, sche->com_transmission);
++            // warm up
++            if (round > 0){
++                total += (tt1 - tt0) * 1000;
++                group_time += sche->group_time;
++                reorder_time += sche->reorder_time;
++                opt += std::max(sche->com_time*1000, sche->com_transmission*1000);
++                nogroup += sche->com_time*1000 + sche->com_transmission*1000;
++            }
++            delete sche;
+         }
+-        delete sche;
+     }
+ 
+     double acc = 0.;
+-    for (int j = 0; j < i * bs; j++){
++    for (int j = 0; j < nq; j++){
+         acc += inter_sec(idx.data() + input_k * j, gt + k * j, input_k);
+     }
+ 
++    printf("[REPORT] Time %f\n", total / 1000);
++    printf("[REPORT] RECALL %f\n", acc * 100 / nq);
++
++    /*
+     printf("Ave Opt Latency : %.3f s\n", opt / (i-1) / 1000);
+     printf("Ave Latency : %.3f s\n", total / (i-1) /1000);
+     printf("Ave Reorder Time : %.3f ms\n", reorder_time / (i-1));
+     printf("Ave Group Time : %.3f ms\n", group_time / (i-1));
+     printf("Ave accuracy : %.1f%% \n", acc * 100 / (i*bs));
++    */
+     // }
+ 
+-    delete[] xq;
+-    delete[] gt;
+-    delete[] gtd;
+-    delete index;
+-    delete pipe_res;
++    //delete[] xq;
++    //delete[] gt;
++    //delete[] gtd;
++    //delete index;
++    //delete pipe_res;
+     return 0;
+ }
++
+diff --git a/faiss/gpu/CMakeLists.txt b/faiss/gpu/CMakeLists.txt
+index f346d00..e9d720e 100644
+--- a/faiss/gpu/CMakeLists.txt
++++ b/faiss/gpu/CMakeLists.txt
+@@ -177,7 +177,7 @@ foreach(header ${FAISS_GPU_HEADERS})
+   )
+ endforeach()
+ 
+-list (APPEND PRJ_COMPILE_OPTIONS -Xcompiler)
++#list (APPEND PRJ_COMPILE_OPTIONS -Xcompiler)
+ find_package (OpenMP)
+ if (OpenMP_FOUND)
+ 	list ( APPEND PRJ_COMPILE_OPTIONS ${OpenMP_CXX_FLAGS} )

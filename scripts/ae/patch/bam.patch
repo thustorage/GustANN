@@ -1,0 +1,13 @@
+diff --git a/include/page_cache.h b/include/page_cache.h
+index da7e064..d5c095f 100644
+--- a/include/page_cache.h
++++ b/include/page_cache.h
+@@ -581,7 +581,7 @@ uint64_t get_backing_ctrl_(const size_t page_offset, const uint64_t n_ctrls, con
+ 
+ }
+ 
+-__global__
++inline __global__
+ void __flush(page_cache_d_t* pc) {
+     uint64_t page = threadIdx.x + blockIdx.x * blockDim.x;
+ 

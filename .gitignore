@@ -3,3 +3,10 @@
 /tmp/
 /log/
 /scripts/__pycache__/
+/scripts/ae/Profile*.txt
+/scripts/ae/config.ini
+/figures/
+/scripts/ae/.ipynb_checkpoints/
+/ssd_list_tmp.txt
+/baselines/
+/deps/bam/

@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <fstream>
+#include <cstdint>
 #include <set>
 
 

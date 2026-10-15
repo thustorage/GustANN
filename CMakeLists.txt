@@ -10,6 +10,7 @@ project(
   Test
   LANGUAGES CXX)
 
+set(CMAKE_CUDA_ARCHITECTURES "70;80;90")
 enable_language(CUDA)
 enable_language(C)
 
@@ -19,8 +20,9 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_BUILD_TYPE DEBUG)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_CUDA_ARCHITECTURES "70;80;90")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(GUSTANN_USE_BAM "Build the BaM-based search executable" ON)
 
 # If you set any CMAKE_ variables, that can go here.
 # (But usually don't do this, except maybe for C++ standard)

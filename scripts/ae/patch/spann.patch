@@ -1,0 +1,128 @@
+diff --git a/AnnService/inc/Core/Common.h b/AnnService/inc/Core/Common.h
+index afa8f1dc..d8363f84 100644
+--- a/AnnService/inc/Core/Common.h
++++ b/AnnService/inc/Core/Common.h
+@@ -124,8 +124,6 @@ const float Epsilon = 0.000001f;
+ const std::uint16_t PageSize = 4096;
+ const int PageSizeEx = 12;
+ 
+-extern std::mt19937 rg;
+-
+ extern std::shared_ptr<Helper::DiskIO>(*f_createIO)();
+ 
+ #define IOBINARY(ptr, func, bytes, ...) if (ptr->func(bytes, __VA_ARGS__) != bytes) return ErrorCode::DiskIOFail
+diff --git a/AnnService/inc/Core/Common/BKTree.h b/AnnService/inc/Core/Common/BKTree.h
+index f56e9f59..cacb6eb3 100644
+--- a/AnnService/inc/Core/Common/BKTree.h
++++ b/AnnService/inc/Core/Common/BKTree.h
+@@ -346,6 +346,7 @@ namespace SPTAG
+             float adjustedLambda = InitCenters<T, R>(data, indices, first, last, args, samples, 3);
+             if (abort && abort->ShouldAbort()) return 0;
+ 
++            std::mt19937 rg;
+             SizeType batchEnd = min(first + samples, last);
+             float currDiff, currDist, minClusterDist = MaxDist;
+             int noImprovement = 0;
+@@ -567,6 +568,7 @@ break;
+ 
+                 if (m_fBalanceFactor < 0) m_fBalanceFactor = DynamicFactorSelect(data, localindices, 0, (SizeType)localindices.size(), args, m_iSamples);
+ 
++                std::mt19937 rg;
+                 m_pSampleCenterMap.clear();
+                 for (char i = 0; i < m_iTreeNumber; i++)
+                 {
+diff --git a/AnnService/inc/Core/Common/KDTree.h b/AnnService/inc/Core/Common/KDTree.h
+index e6c7e5b0..59bba234 100644
+--- a/AnnService/inc/Core/Common/KDTree.h
++++ b/AnnService/inc/Core/Common/KDTree.h
+@@ -99,6 +99,7 @@ break;
+ #pragma omp parallel for num_threads(numOfThreads)
+                 for (int i = 0; i < m_iTreeNumber; i++)
+                 {
++                    std::mt19937 rg;
+                     if (abort && abort->ShouldAbort()) continue;
+ 
+                     Sleep(i * 100); std::srand(clock());
+diff --git a/AnnService/inc/Core/Common/NeighborhoodGraph.h b/AnnService/inc/Core/Common/NeighborhoodGraph.h
+index a347fc12..9fdcc260 100644
+--- a/AnnService/inc/Core/Common/NeighborhoodGraph.h
++++ b/AnnService/inc/Core/Common/NeighborhoodGraph.h
+@@ -315,6 +315,7 @@ break;
+ #pragma omp parallel for schedule(dynamic)
+                 for (int i = 0; i < m_iTPTNumber; i++)
+                 {
++                    std::mt19937 rg;
+                     Sleep(i * 100); std::srand(clock());
+                     for (SizeType j = 0; j < m_iGraphSize; j++) TptreeDataIndices[i][j] = j;
+                     std::shuffle(TptreeDataIndices[i].begin(), TptreeDataIndices[i].end(), rg);
+diff --git a/AnnService/inc/SSDServing/SSDIndex.h b/AnnService/inc/SSDServing/SSDIndex.h
+index d45685b6..c1ed41a7 100644
+--- a/AnnService/inc/SSDServing/SSDIndex.h
++++ b/AnnService/inc/SSDServing/SSDIndex.h
+@@ -155,7 +155,8 @@ namespace SPTAG {
+                     "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
+                     sendingCost,
+                     numQueries / sendingCost,
+-                    static_cast<uint32_t>(numQueries));
++                             static_cast<uint32_t>(numQueries));
++                printf("[REPORT] QPS %lf\n", numQueries / sendingCost);
+ 
+                 for (int i = 0; i < numQueries; i++) { p_results[i].CleanQuantizedTarget(); }
+             }
+@@ -283,6 +284,7 @@ namespace SPTAG {
+ 
+                     recall = COMMON::TruthSet::CalculateRecall<ValueType>((p_index->GetMemoryIndex()).get(), results, truth, K, truthK, querySet, vectorSet, numQueries, nullptr, false, &MRR);
+                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
++                    printf("[REPORT] Recall: %lf\n", recall);
+                 }
+ 
+                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "\nEx Elements Count:\n");
+@@ -324,6 +326,11 @@ namespace SPTAG {
+                         return ss.m_diskAccessCount;
+                     },
+                     "%4d");
++                double sum = 0;
++                for (const auto &V: stats) {
++                    sum += V.m_diskAccessCount;
++                }
++                printf("[REPORT] IO %lf\n", sum / stats.size());
+ 
+                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "\nTotal Disk IO Distribution:\n");
+                 PrintPercentiles<int, SPANN::SearchStats>(stats,
+diff --git a/AnnService/inc/SSDServing/SelectHead.h b/AnnService/inc/SSDServing/SelectHead.h
+index 3db6b8a6..69486a89 100644
+--- a/AnnService/inc/SSDServing/SelectHead.h
++++ b/AnnService/inc/SSDServing/SelectHead.h
+@@ -883,6 +883,7 @@ namespace SPTAG {
+                 std::vector<int> selected;
+ 
+                 if (Helper::StrUtils::StrEqualIgnoreCase(opts.m_selectType.c_str(), "Random")) {
++                    std::mt19937 rg;
+                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start generating Random head.\n");
+                     selected.resize(vectorSet->Count());
+                     for (int i = 0; i < vectorSet->Count(); i++) selected[i] = i;
+diff --git a/AnnService/src/Core/SPANN/SPANNIndex.cpp b/AnnService/src/Core/SPANN/SPANNIndex.cpp
+index aecd3ac2..c1f93698 100644
+--- a/AnnService/src/Core/SPANN/SPANNIndex.cpp
++++ b/AnnService/src/Core/SPANN/SPANNIndex.cpp
+@@ -721,6 +721,7 @@ namespace SPTAG
+                 selected.push_back(0); 
+             }
+             else if (Helper::StrUtils::StrEqualIgnoreCase(m_options.m_selectType.c_str(), "Random")) {
++                std::mt19937 rg;
+                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start generating Random head.\n");
+                 selected.resize(data.R());
+                 for (int i = 0; i < data.R(); i++) selected[i] = i;
+diff --git a/AnnService/src/Core/VectorIndex.cpp b/AnnService/src/Core/VectorIndex.cpp
+index 5c26429e..c30ef6d8 100644
+--- a/AnnService/src/Core/VectorIndex.cpp
++++ b/AnnService/src/Core/VectorIndex.cpp
+@@ -40,8 +40,6 @@ void SPTAG::SetLogger(std::shared_ptr<Helper::Logger> p_logger) {
+     GetLoggerHolder().SetLogger(p_logger);
+ }
+ 
+-std::mt19937 SPTAG::rg;
+-
+ std::shared_ptr<Helper::DiskIO>(*SPTAG::f_createIO)() = []() -> std::shared_ptr<Helper::DiskIO> { return std::shared_ptr<Helper::DiskIO>(new Helper::SimpleFileIO()); };
+ 
+ namespace SPTAG {

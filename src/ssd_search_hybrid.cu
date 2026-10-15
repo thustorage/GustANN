@@ -48,10 +48,17 @@ static void bind_core(int core_num) {
 
 #define REPORT(fmt, ...) printf("[REPORT] " fmt "\n", __VA_ARGS__)
 
+#if defined(DEF_ABLATION_GRAPH)
+//#define LOAD_PROBE
+#elif defined(DEF_PROFILE)
+#define NAV_GRAPH
+//#define LOAD_PROBE
+#else
 #define NAV_GRAPH
 //#define LOAD_PROBE
 //#define COPY_DATA
 //#define CACHE_START
+#endif
 
 namespace gustann {
   static std::string fpath_;

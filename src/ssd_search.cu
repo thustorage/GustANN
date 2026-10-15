@@ -49,7 +49,7 @@ namespace gustann {
   }
 
   __global__ void copy_page_to_ssd(Controller** ctrls, page_cache_d_t* pc, uint64_t n_ctrls, uint8_t* src, size_t start_lba, size_t len, size_t page_size) {
-    #ifdef ASYNC_READ
+#ifdef ASYNC_READ
     uint64_t cache_pages = pc->n_pages;
     
     
@@ -98,7 +98,34 @@ namespace gustann {
     }
 
 #else
-    assert(false || "Not implemented!");
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t warp = tid / 32;
+    uint64_t ctrl_slot = warp % n_ctrls;
+    uint64_t num_warps = uint64_t(blockDim.x) * gridDim.x / 32;
+    uint64_t warps_per_ctrl = (num_warps + n_ctrls - 1 - ctrl_slot) / n_ctrls;
+    uint64_t first_page = (warp / n_ctrls * 32 + tid % 32) * n_ctrls + ctrl_slot;
+    uint64_t stride = warps_per_ctrl * 32 * n_ctrls;
+
+    // Keep each warp on one controller and queue, as in BaM's copy kernels.
+    size_t n_pages = len;
+    for (size_t i = first_page; i < n_pages; i += stride) {
+      // Match the STRIPE layout used by the reader.
+      uint64_t current_page_idx = start_lba + i;
+      uint32_t ctrl = current_page_idx % n_ctrls;
+      uint32_t queue = (tid / 32) % (ctrls[ctrl]->n_qps);
+      uint32_t blk_size_log = ctrls[ctrl]->d_qps[queue].block_size_log;
+      uint64_t n_blocks = page_size >> blk_size_log;
+      uint64_t start_block = ((current_page_idx / n_ctrls) * page_size) >> blk_size_log;
+
+      // The host limits each batch to the DMA cache capacity.
+      uint64_t pc_idx = i;
+      uint8_t* dst_ptr = (uint8_t*)pc->base_addr + pc_idx * page_size;
+      uint8_t* src_ptr = src + i * page_size;
+      for (size_t b = 0; b < page_size; ++b) {
+        dst_ptr[b] = src_ptr[b];
+      }
+      write_data(pc, ctrls[ctrl]->d_qps + queue, start_block, n_blocks, pc_idx);
+    }
 #endif
   }
 
@@ -240,7 +267,10 @@ namespace gustann {
 
     uint64_t copy_block_cnt = 112 * 4;
     uint64_t copy_batch = 1000 * 1024 / 4 / copy_block_cnt;
-    uint64_t copy_pages = copy_block_cnt * copy_batch; // 100MB
+    // Bound each batch by the launch size and DMA cache capacity.
+    uint64_t copy_pages = std::min(copy_block_cnt * copy_batch,
+                                  std::min(uint64_t(bam_data_.h_pc->pdt.n_pages),
+                                           copy_block_cnt * uint64_t(block_dim_)));
 
     /*
     {
@@ -286,7 +316,7 @@ namespace gustann {
     }
     DEBUG("{} {}", tot_cnt, num_pages_);
     ASSERT((tot_cnt == num_pages_));
-    bam_data_.h_pc->clear_cache();
+    //bam_data_.h_pc->clear_cache();
     CHECK_CUDA(cudaDeviceSynchronize());
     double end = elapsed();
     CHECK_CUDA(cudaFreeHost(buff));

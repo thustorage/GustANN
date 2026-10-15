@@ -1,0 +1,208 @@
+diff --git a/BANG_Base/bang_search.cu b/BANG_Base/bang_search.cu
+index e0cc8f1..96ad282 100644
+--- a/BANG_Base/bang_search.cu
++++ b/BANG_Base/bang_search.cu
+@@ -373,6 +373,11 @@ void BANGSearchInner<T>::bang_alloc(int numQueries)
+ 	m_objHostInst.FPSetCoords_rowsize = m_objHostInst.FPSetCoords_size * numQueries;
+ 	m_objHostInst.FPSetCoords_rowsize_bytes = m_objHostInst.FPSetCoords_size_bytes * numQueries;
+ 
++	size_t free_mem_before, tot_mem;
++	size_t free_mem_after;
++	gpuErrchk(cudaMemGetInfo(&free_mem_before, &tot_mem));
++	printf("Now %lf/%lf B free mem\n",
++	       1.0 * free_mem_before, 1.0 * tot_mem );
+ 
+ 	// Allocations on GPU
+ 	gpuErrchk(cudaMalloc(&m_objGPUInst.d_queriesFP, sizeof(T) * (numQueries*m_objInputData.D)));
+@@ -401,6 +406,11 @@ void BANGSearchInner<T>::bang_alloc(int numQueries)
+ 	gpuErrchk(cudaMalloc(&m_objGPUInst.d_L2distances_aux, (uMAX_PARENTS_PERQUERY * numQueries) * sizeof(float) )); // Dim: [numIterations * numQueries]
+ 	gpuErrchk(cudaMalloc(&m_objGPUInst.d_L2ParentIds_aux, (uMAX_PARENTS_PERQUERY * numQueries) * sizeof(unsigned) )); // Dim: [numIterations * numQueries]
+ 
++	gpuErrchk(cudaMemGetInfo(&free_mem_after, &tot_mem));
++	printf("Now %lf/%lf B free mem\n",
++	       1.0 * free_mem_after, 1.0 * tot_mem);
++	printf("Mem Usage: %lf KB/query\n", 1.0 * (free_mem_before - free_mem_after) / numQueries / 1024);
++
+ 	// Default stream computations or transfers cannot be overalapped with operations on other streams
+ 	// Hence creating separate streams for transfers and computations to achieve overlap
+ 	// memory transfers overlap with all kernel executions
+@@ -1804,4 +1814,4 @@ void bang_query_c(uint8_t* query_array, int num_queries,
+ {
+ 	bang_query<uint8_t>(query_array,num_queries, nearestNeighbours, nearestNeighbours_dist );
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/BANG_Base/test_driver.cpp b/BANG_Base/test_driver.cpp
+index e317587..271ec11 100644
+--- a/BANG_Base/test_driver.cpp
++++ b/BANG_Base/test_driver.cpp
+@@ -235,9 +235,53 @@ inline uint64_t save_bin(const std::string &filename, T *data, size_t npts,
+ }
+ // compute ground truth
+ 
++inline float *fvecs_read(const char *fname, size_t *d_out, size_t *n_out) {
++  FILE *f = fopen(fname, "r");
++  if (!f) {
++    fprintf(stderr, "could not open %s\n", fname);
++    perror("");
++    abort();
++  }
++  int d;
++  fread(&d, 1, sizeof(int), f);
++  assert((d > 0 && d < 1000000) || !"unreasonable dimension");
++  fseek(f, 0, SEEK_SET);
++  struct stat st;
++  fstat(fileno(f), &st);
++  size_t sz = st.st_size;
++  assert(sz % ((d + 1) * 4) == 0 || !"weird file size");
++  size_t n = sz / ((d + 1) * 4);
++
++  *d_out = d;
++  *n_out = n;
++  float *x = new float[n * (d + 1)];
++  size_t nr = fread(x, sizeof(float), n * (d + 1), f);
++  assert(nr == n * (d + 1) || !"could not read whole file");
++
++  // shift array to remove row headers
++  for (size_t i = 0; i < n; i++)
++    memmove(x + i * d, x + 1 + i * (d + 1), d * sizeof(*x));
++
++  fclose(f);
++  return x;
++}
++
++// not very clean, but works as long as sizeof(int) == sizeof(float)
++inline int *ivecs_read(const char *fname, size_t *d_out, size_t *n_out) {
++  return (int *)fvecs_read(fname, d_out, n_out);
++}
++
++
+ inline void load_truthset(const std::string &bin_file, uint32_t *&ids,
+ 						  float *&dists, size_t &npts, size_t &dim)
+ {
++
++	ids = (uint32_t*) ivecs_read(bin_file.c_str(), &dim, &npts);
++	std::cout << "Ground Truth:" << npts << " " << dim << std::endl;
++
++
++	dists = nullptr;
++	return;
+ 	uint64_t read_blk_size = 64 * 1024 * 1024;
+ 	cached_ifstream reader(bin_file, read_blk_size);
+ 	//std::cout << "Reading truthset file " << bin_file.c_str() << " ..." << std::endl;
+@@ -384,7 +428,7 @@ int run_anns(int argc, char **argv)
+ 	string strMode("MODE_AUTO");
+ 	if(argc == 8)
+ 		strMode = MODE_INTERACTIVE;
+-	
++
+ 		do
+ 		{
+ 			if (MODE_INTERACTIVE == strMode)
+@@ -397,30 +441,35 @@ int run_anns(int argc, char **argv)
+ 				continue;
+ 			}
+ 
+-//            if (nIter == 0)
+-            {
+-                cout << "L\t" << "Time \t" << "QPS\t" << "\t" << recall_param <<"-r@" << recall_param << endl;
+-			    cout << "--\t" << "---- \t" << "---\t" << "\t------" << endl;
+-            }
++			//if (nIter == 0)
++			{
++				cout << "L\t" << "Time \t" << "QPS\t" << "\t" << recall_param <<"-r@" << recall_param << endl;
++				cout << "--\t" << "---- \t" << "---\t" << "\t------" << endl;
++			}
+ 			}
+ 			else 
+ 			{
+-                if (nIter == 0)
+-                {
+-                    cout << "L\t" << "Time \t" << "QPS\t" << "\t" << recall_param <<"-r@" << recall_param << endl;
+-                    cout << "--\t" << "---- \t" << "---\t" << "\t------" << endl;
+-                }
+-                else
+-				    nWLLen = nWLLen + (nStepSize);
+-
+-                if (nWLLen >  MAX_L)
+-                    break;
++				if (nIter == 0) {
++					cout << "L\t" << "Time \t" << "QPS\t" << "\t" << recall_param <<"-r@" << recall_param << endl;
++					cout << "--\t" << "---- \t" << "---\t" << "\t------" << endl;
++				}
++				if (8 + nIter >= argc) break;
++				nWLLen = atoi(argv[8 + nIter]);
++				if (nWLLen < recall_param || nWLLen >= MAX_L) {
++					cout << "Invalid L:" << nWLLen << endl;
++					nIter++;
++					continue;
++				}
++				printf("[REPORT] EF %d\n", nWLLen);
+ 			}
+ 
+                 
+ 			objBANG.bang_set_searchparams(recall_param, nWLLen, uDistFunc);
+ 			objBANG.bang_alloc(numQueries);
+ 
++			double avg_throughput = 0;
++			double overall_recall = 0;
++
+ 			for (int nCounter = 0; nCounter < 5; nCounter++)
+ 			{
+ 				result_ann_t *nearestNeighbours = (result_ann_t *)malloc(sizeof(result_ann_t) * recall_param * numQueries);
+@@ -438,7 +487,7 @@ int run_anns(int argc, char **argv)
+ 				double totalTime_wallclock = milliEnd - milliStart;
+ 				double throughput = (numQueries * 1000.0) / totalTime_wallclock;
+ 				
+-				
++				if (nCounter != 0) avg_throughput += throughput;
+ 						
+ 				// compute recall
+ 				unsigned numCPUthreads = 64;
+@@ -492,8 +541,9 @@ int run_anns(int argc, char **argv)
+ 				}
+                 else
+                 {
+-					std::cout << "Groundtruth file could not be loaded:" << argv[3] << std::endl;
+-                    exit(1);
++					//std::cout << "Groundtruth file could not be loaded:" << argv[3] << std::endl;
++					//exit(1);
++					calc_recall_flag = false;
+                 }
+ 				std::cout.setf(std::ios_base::fixed, std::ios_base::floatfield);
+ 				std::cout.precision(2);
+@@ -524,6 +574,7 @@ int run_anns(int argc, char **argv)
+ 					//cout << L1 << "\t" << recall << endl;
+ 				}
+ 				cout << nWLLen << "\t" << totalTime_wallclock << "\t" << throughput << "\t" <<  recall << endl;
++				overall_recall = recall;
+ 
+ 				free(nearestNeighbours);
+ 				nearestNeighbours = NULL;
+@@ -532,16 +583,18 @@ int run_anns(int argc, char **argv)
+ 				delete[] gt_ids;
+ 				delete[] gt_dists; 
+ 			}
++			printf("[REPORT] QPS %lf Recall %lf\n", avg_throughput / 4, overall_recall);
+ 			objBANG.bang_free();
+ 			if (MODE_INTERACTIVE == strMode)
+ 			{
+-                char c = 'n';
+-                cout << "Try Next run ? [y|n]" << endl;
+-                cin >> c;
+-                if (c == 'n')
+-                    break;
+-            }
+-            nIter++;
++				char c = 'n';
++				cout << "Try Next run ? [y|n]" << endl;
++				cin >> c;
++				if (c == 'n')
++					break;
++			}
++			nIter++;
++			
+ 		} while (1);
+ 	
+ 	/*
