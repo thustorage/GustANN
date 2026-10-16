@@ -11,6 +11,7 @@ project(
   LANGUAGES CXX)
 
 set(CMAKE_CUDA_ARCHITECTURES "80;90")
+
 enable_language(CUDA)
 enable_language(C)
 find_package(CUDAToolkit REQUIRED)
