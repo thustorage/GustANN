@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include <iostream>
+#include <cstdint>
 
 
 #include "utils.hpp"

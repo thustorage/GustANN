@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cassert>
+#include <cstdint>
 #include <fstream>
 #include <set>
 

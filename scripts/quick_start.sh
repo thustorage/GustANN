@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 HOME_DIR=$(readlink -f $(dirname $0)/..)
 
 pushd $HOME_DIR
@@ -14,7 +16,7 @@ echo "=========== Building DiskANN ============="
 ./scripts/build_diskann.sh
 
 echo "====== Downloading SIFT1M dataset ========"
-mkdir data
+mkdir -p data
 cd data
 curl -O ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz
 tar -xvf sift.tar.gz
