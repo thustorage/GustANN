@@ -5,10 +5,9 @@ set -o pipefail
 HOME_DIR=$(readlink -f "$(dirname "$0")/../..")
 # shellcheck source=scripts/ae/ae-setup.sh
 source "$HOME_DIR/scripts/ae/ae-setup.sh" || exit 1
+init_root_experiment "$@" || exit 1
 trap finish_experiment EXIT
 
-(( $# <= 1 )) || { echo "Usage: $0 [ssd-list-file]" >&2; exit 1; }
-SSD_LIST=${1:-$SSD_LIST}
 NUM_SSDS=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "$SSD_LIST")
 (( NUM_SSDS > 0 )) || { echo "ERROR: Empty SSD list: $SSD_LIST" >&2; exit 1; }
 

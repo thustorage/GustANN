@@ -56,10 +56,52 @@ index a347fc12..9fdcc260 100644
                      for (SizeType j = 0; j < m_iGraphSize; j++) TptreeDataIndices[i][j] = j;
                      std::shuffle(TptreeDataIndices[i].begin(), TptreeDataIndices[i].end(), rg);
 diff --git a/AnnService/inc/SSDServing/SSDIndex.h b/AnnService/inc/SSDServing/SSDIndex.h
-index d45685b6..c1ed41a7 100644
+index d45685b6..4be46bb3 100644
 --- a/AnnService/inc/SSDServing/SSDIndex.h
 +++ b/AnnService/inc/SSDServing/SSDIndex.h
-@@ -155,7 +155,8 @@ namespace SPTAG {
+@@ -2,7 +2,9 @@
+ // Licensed under the MIT License.
+ 
+ #pragma once
++#include <condition_variable>
+ #include <limits>
++#include <mutex>
+ #include "inc/Core/Common.h"
+ #include "inc/Core/Common/DistanceUtils.h"
+ #include "inc/Core/Common/QueryResultSet.h"
+@@ -107,6 +109,9 @@ namespace SPTAG {
+                 int numQueries = min(static_cast<int>(p_results.size()), p_maxQueryCount);
+ 
+                 std::atomic_size_t queriesSent(0);
++                std::mutex completionMutex;
++                std::condition_variable completionCv;
++                int threadsRemaining = p_numThreads;
+ 
+                 std::vector<std::thread> threads;
+                 threads.reserve(p_numThreads);
+@@ -142,9 +147,20 @@ namespace SPTAG {
+                             }
+                             else
+                             {
+-                                return;
++                                break;
+                             }
+                         }
++
++                        // Keep TLS workspaces alive until every worker has finished using AIO channels.
++                        std::unique_lock<std::mutex> lock(completionMutex);
++                        if (--threadsRemaining == 0)
++                        {
++                            completionCv.notify_all();
++                        }
++                        else
++                        {
++                            completionCv.wait(lock, [&]() { return threadsRemaining == 0; });
++                        }
+                     });
+                 }
+                 for (auto& thread : threads) { thread.join(); }
+@@ -155,7 +171,8 @@ namespace SPTAG {
                      "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
                      sendingCost,
                      numQueries / sendingCost,
@@ -69,7 +111,7 @@ index d45685b6..c1ed41a7 100644
  
                  for (int i = 0; i < numQueries; i++) { p_results[i].CleanQuantizedTarget(); }
              }
-@@ -283,6 +284,7 @@ namespace SPTAG {
+@@ -283,6 +300,7 @@ namespace SPTAG {
  
                      recall = COMMON::TruthSet::CalculateRecall<ValueType>((p_index->GetMemoryIndex()).get(), results, truth, K, truthK, querySet, vectorSet, numQueries, nullptr, false, &MRR);
                      SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
@@ -77,7 +119,7 @@ index d45685b6..c1ed41a7 100644
                  }
  
                  SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "\nEx Elements Count:\n");
-@@ -324,6 +326,11 @@ namespace SPTAG {
+@@ -324,6 +342,11 @@ namespace SPTAG {
                          return ss.m_diskAccessCount;
                      },
                      "%4d");

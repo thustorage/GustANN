@@ -4,6 +4,7 @@ set -o pipefail
 
 HOME_DIR=$(readlink -f "$(dirname "$0")/../..")
 source "$HOME_DIR"/scripts/ae/ae-setup.sh || exit 1
+init_root_experiment "$@" || exit 1
 
 DAEMON_PID=
 function stop_monitor() {

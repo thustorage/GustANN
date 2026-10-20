@@ -37,8 +37,35 @@ function finish_experiment() {
     exit "$status"
 }
 
+function init_root_experiment() {
+    (( EUID == 0 )) || { echo "ERROR: Run this experiment with sudo: sudo $0 $*" >&2; return 1; }
+    while (( $# > 0 )); do
+        case $1 in
+            --tmp-dir|--ssd-list)
+                (( $# >= 2 )) || { echo "ERROR: Missing value for $1" >&2; return 1; }
+                if [[ $1 == --tmp-dir ]]; then TMP_DIR=$2; else SSD_LIST=$2; fi
+                shift 2
+                ;;
+            --*)
+                echo "ERROR: Unknown experiment option: $1" >&2; return 1
+                ;;
+            *)
+                # Compatibility with run_ssd_gustann.sh [ssd-list-file].
+                (( $# == 1 )) || { echo "ERROR: Unexpected experiment arguments: $*" >&2; return 1; }
+                SSD_LIST=$1
+                shift
+                ;;
+        esac
+    done
+    mkdir -p "$TMP_DIR" || return 1
+    # Keep the shared log directory usable by subsequent unprivileged baselines.
+    if [[ -n ${SUDO_UID:-} && -n ${SUDO_GID:-} ]]; then
+        chown "$SUDO_UID:$SUDO_GID" "$TMP_DIR" || return 1
+    fi
+}
+
 function gpu_run() {
-    sudo env CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES" \
+    env CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES" \
         LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" "$@"
 }
 
